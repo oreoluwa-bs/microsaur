@@ -132,8 +132,8 @@ func getDatabaseById(w http.ResponseWriter, r *http.Request) {
 }
 
 type CommandDatabase struct {
-	Query  string   `json:"query"`
-	Values []string `json:"values"`
+	SQL    string   `json:"sql"`
+	Params []string `json:"params"`
 }
 
 func sendDatabaseCommandById(w http.ResponseWriter, r *http.Request) {
@@ -168,11 +168,11 @@ func sendDatabaseCommandById(w http.ResponseWriter, r *http.Request) {
 
 	var interfaceValues []interface{}
 
-	for _, v := range body.Values {
+	for _, v := range body.Params {
 		interfaceValues = append(interfaceValues, v)
 	}
 
-	db.Exec(body.Query, interfaceValues...)
+	db.Exec(body.SQL, interfaceValues...)
 
 	w.WriteHeader(http.StatusOK)
 }
