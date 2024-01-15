@@ -1,6 +1,6 @@
 # Microsaur (Micro dinosaur)
 
-A lightweight and flexible Go-based application that enables you to quickly set up a remote SQLite database server accessible over HTTP. Simplify database management by interacting with SQLite databases remotely, executing queries, and performing updates seamlessly through HTTP requests. Please note that this is a tiny experiment and is not intended for production use.
+A lightweight and flexible Go-based application that enables you to quickly set up a remote SQLite database server accessible over HTTP. Simplify database management by interacting with SQLite databases remotely, executing queries, and performing updates seamlessly through HTTP requests. Please note that this is a tiny experiment and is not intended for production use. Inspired by Turso and Upstash (redis)
 
 ## Features
 
