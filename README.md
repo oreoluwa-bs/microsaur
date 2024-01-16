@@ -40,7 +40,15 @@ Content-Type: application/json
   "name": "myDatabase"
 }
 
-POST /database/{databaseId}
+POST /database/{databaseId}/query
+Content-Type: application/json
+
+{
+  "sql": "SELECT * FROM users WHERE name = ?",
+  "params": ["John Doe"]
+}
+
+POST /database/{databaseId}/mutation
 Content-Type: application/json
 
 {
