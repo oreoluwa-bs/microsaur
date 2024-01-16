@@ -22,26 +22,38 @@ type CreateDatabaseDTO struct {
 	Name string `json:"name"`
 }
 
-func (s *DatabaseStore) Create(body CreateDatabaseDTO) error {
+func (s *DatabaseStore) Create(body CreateDatabaseDTO) (Database, error) {
+	var database Database
 	statement, err := s.DB.Prepare(`INSERT INTO databases Values(NULL,?)`)
 	if err != nil {
-		return err
+		return database, err
 	}
 
 	// Validate
 	if body.Name == "main" {
-		return errors.New(body.Name + " is a reserved word")
+		return database, errors.New(body.Name + " is a reserved word")
 	}
 
-	_, err = statement.Exec(body.Name)
+	res, err := statement.Exec(body.Name)
 	if err != nil {
-		return err
+		return database, err
 	}
 
 	//
 	newDb := ConnectToDB(body.Name) // creates db
 	defer newDb.Close()
-	return nil
+
+	id, err := res.LastInsertId()
+	if err != nil {
+		return database, err
+	}
+
+	database, err = s.GetById(id)
+	if err != nil {
+		return database, err
+	}
+
+	return database, err
 }
 
 func (s *DatabaseStore) GetAll() ([]Database, error) {
@@ -65,7 +77,7 @@ func (s *DatabaseStore) GetAll() ([]Database, error) {
 	return data, nil
 }
 
-func (s *DatabaseStore) GetById(id string) (Database, error) {
+func (s *DatabaseStore) GetById(id int64) (Database, error) {
 	var database Database
 
 	row := s.DB.QueryRow(`SELECT * FROM databases WHERE id = ?`, id)
@@ -82,7 +94,7 @@ type CommandDatabase struct {
 	Params []interface{} `json:"params"`
 }
 
-func (s *DatabaseStore) SendMutation(id string, cmd CommandDatabase) (sql.Result, error) {
+func (s *DatabaseStore) SendMutation(id int64, cmd CommandDatabase) (sql.Result, error) {
 
 	var database Database
 
@@ -118,7 +130,7 @@ func (s *DatabaseStore) SendMutation(id string, cmd CommandDatabase) (sql.Result
 	return result, nil
 }
 
-func (s *DatabaseStore) SendQuery(id string, cmd CommandDatabase) ([]map[string]interface{}, error) {
+func (s *DatabaseStore) SendQuery(id int64, cmd CommandDatabase) ([]map[string]interface{}, error) {
 	var database Database
 
 	row := s.DB.QueryRow("SELECT * FROM databases WHERE id = ?", id)

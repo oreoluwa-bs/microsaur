@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -19,15 +20,25 @@ func main() {
 
 const htmlTemplate = `
 Threads
-<form method="POST">
+<form id="create-db-form" method="POST">
 <label>
-Database Id
-<input name="id" id='id'></input>
+name
+<input name="name" id='name' placeholder= "name of database"></input>
+</label>
+
+<button>Submit</button>
+</form>
+
+<form id="sql-form" method="POST">
+<label>
+Database
+<select name="id" id="id" required>
+</select>
 </label>
 
 <label>
 Type
-<select name="type" value="query" id="type">
+<select name="type" value="query" id="type" required>
 <option value="query">Query</option>
 <option value="mutation">Mutation</option>
 </select>
@@ -35,7 +46,7 @@ Type
 
 <label>
 Query
-<textarea name="sql" id='sql' ></textarea>
+<textarea name="sql" id='sql' required></textarea>
 </label>
 
 <label>
@@ -49,46 +60,97 @@ Params
 <div id='answer'></div>
 
 <script>
-var form = document.querySelector("form");
-const answr =document.querySelector("#answer");
+  document.addEventListener("DOMContentLoaded", () => {
+    var sqlForm = document.querySelector("form#sql-form");
+    createDb = document.querySelector("form#create-db-form");
+    const answr = document.querySelector("#answer");
+    const idSelector = sqlForm?.querySelector("select#id");
 
-form?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  if(answr){
-	  answr.innerHTML = "";
-	}
+    // console.log(idSelector)
 
-  const formData = new FormData(e.target);
-  const formObject = Object.fromEntries(formData);
+    sqlForm?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (answr) {
+        answr.innerHTML = "";
+      }
 
-//   console.log(e.target.action);
-//   console.log(formData.get("sql"));
-//   console.log(formObject);
+      const formData = new FormData(e.target);
+      const formObject = Object.fromEntries(formData);
 
+      //   console.log(e.target.action);
+      //   console.log(formData.get("sql"));
+      //   console.log(formObject);
+      formObject.params = formObject.params.split(",");
+      const action = "/database/" + formObject.id + "/" + formObject.type;
 
-formObject.params = formObject.params.split(",");
+      const response = await fetch(action, {
+        method: "POST",
+        body: JSON.stringify(formObject),
+      });
 
+      if (!response.ok) {
+        const text = await response.text();
+        alert(text);
+        return;
+      }
 
-const action = "/database/"+formObject.id+"/"+formObject.type;
+      const result = await response.json();
+      if (answr) {
+        answr.innerHTML = JSON.stringify(result, undefined, 2);
+      }
+    });
 
-  const response = await fetch(action, {
-	method:"POST",
-    body: JSON.stringify(formObject),
+    createDb?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const formData = new FormData(e.target);
+      const formObject = Object.fromEntries(formData);
+      const action = "/database";
+
+      const response = await fetch(action, {
+        method: "POST",
+        body: JSON.stringify(formObject),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        alert(text);
+        return;
+      }
+
+      const result = await response.json();
+    //   alert(response.statusText + ": " + JSON.stringify(result));
+
+      const newOption = document.createElement("option");
+      newOption.innerText = result.name;
+      newOption.value = result.id;
+      idSelector.appendChild(newOption);
+    });
+
+    fetch("/database")
+      .then(async (resp) => {
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(text);
+        }
+        return resp.json();
+      })
+      .then((result) => {
+        result.forEach((r) => {
+          const newOption = document.createElement("option");
+          newOption.innerText = r.name;
+          newOption.value = r.id;
+          idSelector.appendChild(newOption);
+        });
+      })
+      .catch((err) => {
+        if (err instanceof Error) {
+          alert(err.message);
+        }
+      });
   });
-  
-  if (!response.ok) {
-	const text = await response.text();
-    alert(text);
-    return;
-  }
-
-  const result = await response.json();
-  if(answr){
-	  answr.innerHTML = JSON.stringify(result,undefined,2)
-	}
-});
-
 </script>
+
 `
 
 func newStore() chi.Router {
@@ -134,14 +196,16 @@ func newStore() chi.Router {
 			dec := json.NewDecoder(r.Body)
 			dec.Decode(&body)
 
-			if err := ds.Create(body); err != nil {
+			data, err := ds.Create(body)
+			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				w.Write([]byte(err.Error()))
 				return
 			}
 
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("Created"))
+			w.WriteHeader(http.StatusCreated)
+			enc := json.NewEncoder(w)
+			enc.Encode(&data)
 		})
 		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 
@@ -159,7 +223,7 @@ func newStore() chi.Router {
 
 		// // Regexp url parameters:
 		r.Get("/{databaseId}", func(w http.ResponseWriter, r *http.Request) {
-			databaseId := chi.URLParam(r, "databaseId")
+			databaseId := Atoi(chi.URLParam(r, "databaseId"))
 
 			data, err := ds.GetById(databaseId)
 			if err != nil {
@@ -175,7 +239,7 @@ func newStore() chi.Router {
 
 		r.Post("/{databaseId}/query", func(w http.ResponseWriter, r *http.Request) {
 
-			databaseId := chi.URLParam(r, "databaseId")
+			databaseId := Atoi(chi.URLParam(r, "databaseId"))
 
 			var body database.CommandDatabase
 
@@ -194,8 +258,8 @@ func newStore() chi.Router {
 			enc := json.NewEncoder(w)
 			enc.Encode(&data)
 		})
-		r.Post("/{databaseId}/mutation", func(w http.ResponseWriter, r *http.Request) {
-			databaseId := chi.URLParam(r, "databaseId")
+		r.Post("/{databaseId:[0-9]+}/mutation", func(w http.ResponseWriter, r *http.Request) {
+			databaseId := Atoi(chi.URLParam(r, "databaseId"))
 
 			var body database.CommandDatabase
 
@@ -216,4 +280,13 @@ func newStore() chi.Router {
 	})
 
 	return r
+}
+
+func Atoi(s string) int64 {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	return int64(n)
 }
