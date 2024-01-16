@@ -21,6 +21,8 @@ A lightweight and flexible Go-based application that enables you to quickly set 
 
 3. Access the API and start querying the remote SQLite database.
 
+4. Access the client at http://localhost:8000/
+
 ## Usage Examples
 
 ```http
