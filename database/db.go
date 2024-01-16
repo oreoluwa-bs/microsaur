@@ -2,7 +2,6 @@ package database
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
 	"os"
 
@@ -14,7 +13,7 @@ func ConnectToDB(name string) *sql.DB {
 	os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0666)
 	db, err := sql.Open("sqlite3", filePath)
 
-	fmt.Println(name)
+	// fmt.Println(name)
 
 	if err != nil {
 		log.Fatal(err)

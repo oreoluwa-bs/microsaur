@@ -2,44 +2,15 @@ package database
 
 import (
 	"database/sql"
-	"encoding/json"
-	"fmt"
-	"log"
-	"net/http"
-
-	"github.com/go-chi/chi/v5"
+	"errors"
 )
 
-type DatabaseHandler struct {
+type DatabaseStore struct {
+	DB *sql.DB
 }
 
-var mainDb *sql.DB
-
-func DatabaseRouter(r chi.Router) {
-	if mainDb == nil {
-		mainDb = ConnectToDB("main")
-
-		// Run migrations
-		const create string = `
-  CREATE TABLE IF NOT EXISTS databases (
-  id INTEGER NOT NULL PRIMARY KEY,
-  name VARCHAR
-  );`
-
-		if _, err := mainDb.Exec(create); err != nil {
-			log.Panic(err)
-		}
-
-		// defer mainDb.Close()
-	}
-
-	r.Post("/", createDatabase)
-	r.Get("/", getAllDatabases)
-
-	// Regexp url parameters:
-	r.Get("/{databaseId}", getDatabaseById)
-	r.Post("/{databaseId}/query", sendDatabaseQueryById)
-	r.Post("/{databaseId}/mutation", sendDatabaseMutationById)
+func NewDatabaseStore(db *sql.DB) *DatabaseStore {
+	return &DatabaseStore{DB: db}
 }
 
 type Database struct {
@@ -51,47 +22,32 @@ type CreateDatabaseDTO struct {
 	Name string `json:"name"`
 }
 
-func createDatabase(w http.ResponseWriter, r *http.Request) {
-
-	statement, err := mainDb.Prepare(`INSERT INTO databases Values(NULL,?)`)
+func (s *DatabaseStore) Create(body CreateDatabaseDTO) error {
+	statement, err := s.DB.Prepare(`INSERT INTO databases Values(NULL,?)`)
 	if err != nil {
-		w.Write([]byte("Cannot create new database"))
-		w.WriteHeader(http.StatusBadRequest)
+		return err
 	}
-
-	var body CreateDatabaseDTO
-	decoder := json.NewDecoder(r.Body)
-	decoder.Decode(&body)
 
 	// Validate
 	if body.Name == "main" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(body.Name + " is a reserved word"))
-		return
+		return errors.New(body.Name + " is a reserved word")
 	}
 
 	_, err = statement.Exec(body.Name)
 	if err != nil {
-		w.Write([]byte(err.Error()))
-		w.WriteHeader(http.StatusBadRequest)
-		return
+		return err
 	}
 
 	//
 	newDb := ConnectToDB(body.Name) // creates db
-
 	defer newDb.Close()
-
-	w.Write([]byte("Created"))
-	w.WriteHeader(http.StatusCreated)
+	return nil
 }
 
-func getAllDatabases(w http.ResponseWriter, r *http.Request) {
-
-	rows, err := mainDb.Query(`SELECT * FROM databases`)
+func (s *DatabaseStore) GetAll() ([]Database, error) {
+	rows, err := s.DB.Query(`SELECT * FROM databases`)
 	if err != nil {
-		w.Write([]byte("Cannot get databases"))
-		w.WriteHeader(http.StatusBadRequest)
+		return nil, err
 	}
 
 	defer rows.Close()
@@ -101,36 +57,24 @@ func getAllDatabases(w http.ResponseWriter, r *http.Request) {
 		i := Database{}
 		err = rows.Scan(&i.ID, &i.Name)
 		if err != nil {
-			w.Write([]byte("Cannot get databases"))
-			w.WriteHeader(http.StatusBadRequest)
-			return
+			return nil, err
 		}
 		data = append(data, i)
 	}
 
-	enc := json.NewEncoder(w)
-	enc.Encode(data)
-
-	w.WriteHeader(http.StatusOK)
+	return data, nil
 }
 
-func getDatabaseById(w http.ResponseWriter, r *http.Request) {
-
-	databaseId := chi.URLParam(r, "databaseId")
-
+func (s *DatabaseStore) GetById(id string) (Database, error) {
 	var database Database
 
-	row := mainDb.QueryRow(`SELECT * FROM databases WHERE id = ?`, databaseId)
+	row := s.DB.QueryRow(`SELECT * FROM databases WHERE id = ?`, id)
 
 	if err := row.Scan(&database.ID, &database.Name); err != nil {
-		w.Write([]byte(err.Error()))
-		w.WriteHeader(http.StatusBadRequest)
+		return database, err
 	}
 
-	enc := json.NewEncoder(w)
-	enc.Encode(database)
-
-	w.WriteHeader(http.StatusOK)
+	return database, nil
 }
 
 type CommandDatabase struct {
@@ -138,114 +82,71 @@ type CommandDatabase struct {
 	Params []interface{} `json:"params"`
 }
 
-func sendDatabaseMutationById(w http.ResponseWriter, r *http.Request) {
-
-	databaseId := chi.URLParam(r, "databaseId")
+func (s *DatabaseStore) SendMutation(id string, cmd CommandDatabase) (sql.Result, error) {
 
 	var database Database
 
-	row := mainDb.QueryRow("SELECT * FROM databases WHERE id = ?", databaseId)
+	row := s.DB.QueryRow("SELECT * FROM databases WHERE id = ?", id)
 
 	if err := row.Scan(&database.ID, &database.Name); err != nil {
 
 		if err == sql.ErrNoRows {
 			// Handle case when no rows are returned
-			w.Write([]byte("No rows found for the specified ID."))
-			w.WriteHeader(http.StatusBadRequest)
-			return
+			return nil, errors.New("no rows found for the specified ID")
 		}
 
-		w.Write([]byte(err.Error()))
-		w.WriteHeader(http.StatusBadRequest)
-		return
+		return nil, err
 	}
 
 	db := ConnectToDB(database.Name)
 
 	defer db.Close()
 
-	var body CommandDatabase
-
-	dec := json.NewDecoder(r.Body)
-	dec.Decode(&body)
-
 	var interfaceValues []interface{}
-
-	interfaceValues = append(interfaceValues, body.Params...)
-
-	statement, err := db.Prepare(body.SQL)
-	// result, err := db.Exec(body.SQL, interfaceValues...)
-
+	interfaceValues = append(interfaceValues, cmd.Params...)
+	// result, err := db.Exec(cmd.SQL, interfaceValues...)
+	statement, err := db.Prepare(cmd.SQL)
 	if err != nil {
-		w.Write([]byte(err.Error()))
-		w.WriteHeader(http.StatusBadRequest)
-		return
+		return nil, err
 	}
 
 	result, err := statement.Exec(interfaceValues...)
 	if err != nil {
-		w.Write([]byte(err.Error()))
-		w.WriteHeader(http.StatusBadRequest)
-		return
+		return nil, err
 	}
 
-	w.WriteHeader(http.StatusOK)
-	enc := json.NewEncoder(w)
-	enc.Encode(result)
+	return result, nil
 }
 
-func sendDatabaseQueryById(w http.ResponseWriter, r *http.Request) {
-
-	databaseId := chi.URLParam(r, "databaseId")
-
+func (s *DatabaseStore) SendQuery(id string, cmd CommandDatabase) ([]map[string]interface{}, error) {
 	var database Database
 
-	row := mainDb.QueryRow("SELECT * FROM databases WHERE id = ?", databaseId)
+	row := s.DB.QueryRow("SELECT * FROM databases WHERE id = ?", id)
 
 	if err := row.Scan(&database.ID, &database.Name); err != nil {
-
-		if err == sql.ErrNoRows {
-			// Handle case when no rows are returned
-			w.Write([]byte("No rows found for the specified ID."))
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		w.Write([]byte(err.Error()))
-		w.WriteHeader(http.StatusBadRequest)
-		return
+		return nil, err
 	}
 
 	db := ConnectToDB(database.Name)
 
 	defer db.Close()
 
-	var body CommandDatabase
-
-	dec := json.NewDecoder(r.Body)
-	dec.Decode(&body)
-
 	var interfaceValues []interface{}
-	interfaceValues = append(interfaceValues, body.Params...)
+	interfaceValues = append(interfaceValues, cmd.Params...)
 
-	rows, err := db.Query(body.SQL, interfaceValues...)
+	rows, err := db.Query(cmd.SQL, interfaceValues...)
 	if err != nil {
-		fmt.Println("Error executing query:", err)
-		w.Write([]byte(err.Error()))
-		w.WriteHeader(http.StatusBadRequest)
-		return
+		return nil, err
 	}
 
-	// fmt.Println("SQL Query:", body.SQL)
-	// fmt.Println("SQL Params:", body.Params)
+	// fmt.Println("SQL Query:", cmd.SQL)
+	// fmt.Println("SQL Params:", cmd.Params)
 
 	defer rows.Close()
 
 	columns, err := rows.Columns()
 	if err != nil {
-		w.Write([]byte("Cannot get column names"))
-		w.WriteHeader(http.StatusBadRequest)
-		return
+		return nil, err
 	}
 
 	// Create a slice to hold the values for a single row
@@ -265,9 +166,7 @@ func sendDatabaseQueryById(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		err := rows.Scan(valuePointers...)
 		if err != nil {
-			w.Write([]byte("Cannot get databases"))
-			w.WriteHeader(http.StatusBadRequest)
-			return
+			return nil, err
 		}
 
 		row := make(map[string]interface{})
@@ -278,7 +177,5 @@ func sendDatabaseQueryById(w http.ResponseWriter, r *http.Request) {
 		data = append(data, row)
 	}
 
-	enc := json.NewEncoder(w)
-	enc.Encode(data)
-	w.WriteHeader(http.StatusOK)
+	return data, nil
 }
