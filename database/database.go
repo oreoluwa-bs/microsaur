@@ -171,12 +171,18 @@ func sendDatabaseMutationById(w http.ResponseWriter, r *http.Request) {
 
 	var interfaceValues []interface{}
 
-	for _, v := range body.Params {
-		interfaceValues = append(interfaceValues, v)
+	interfaceValues = append(interfaceValues, body.Params...)
+
+	statement, err := db.Prepare(body.SQL)
+	// result, err := db.Exec(body.SQL, interfaceValues...)
+
+	if err != nil {
+		w.Write([]byte(err.Error()))
+		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
 
-	result, err := db.Exec(body.SQL, interfaceValues...)
-
+	result, err := statement.Exec(interfaceValues...)
 	if err != nil {
 		w.Write([]byte(err.Error()))
 		w.WriteHeader(http.StatusBadRequest)
@@ -220,10 +226,7 @@ func sendDatabaseQueryById(w http.ResponseWriter, r *http.Request) {
 	dec.Decode(&body)
 
 	var interfaceValues []interface{}
-
-	for _, v := range body.Params {
-		interfaceValues = append(interfaceValues, v)
-	}
+	interfaceValues = append(interfaceValues, body.Params...)
 
 	rows, err := db.Query(body.SQL, interfaceValues...)
 	if err != nil {
