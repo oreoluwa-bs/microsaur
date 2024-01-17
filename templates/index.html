@@ -1,0 +1,181 @@
+{{define "title" }} Microsaur {{end}} {{define "head-scripts" }} {{end}}
+{{define "body"}}
+<main class="container mx-auto py-7">
+  <form id="create-db-form" method="POST" class="space-y-4">
+    <div class="flex items-end gap-4">
+      <div class="flex items-center gap-4">
+        <label for="name"> Name </label>
+        <input
+          type="text"
+          name="name"
+          id="name"
+          placeholder="Name of database"
+          class="input input-bordered w-full max-w-xs"
+        />
+      </div>
+
+      <button class="btn btn-primary">Submit</button>
+    </div>
+  </form>
+
+  <form id="sql-form" method="POST" class="space-y-4 mt-6">
+    <div class="flex items-center gap-4">
+      <label for="id"> Database </label>
+      <select
+        class="select select-bordered w-full max-w-xs"
+        name="id"
+        id="id"
+        required
+      >
+        <option disabled selected>Select Database</option>
+        {{range .Databases}}
+        <option value="{{.ID}}">{{.Name}}</option>
+        {{end}}
+      </select>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <label for="type"> Type </label>
+      <select
+        name="type"
+        id="type"
+        class="select select-bordered w-full max-w-xs"
+        value="query"
+        required
+      >
+        <option value="query">Query</option>
+        <option value="mutation">Mutation</option>
+      </select>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <label for="sql"> Query </label>
+      <textarea
+        name="sql"
+        id="sql"
+        class="textarea textarea-bordered"
+        placeholder="SELECT * FROM table"
+        required
+      ></textarea>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <label for="params"> Params </label>
+
+      <input
+        type="text"
+        name="params"
+        id="params"
+        placeholder="1,2,3"
+        class="input input-bordered w-full max-w-xs"
+      />
+    </div>
+
+    <button class="btn btn-primary">Submit</button>
+  </form>
+
+  <div id="answer"></div>
+</main>
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    var sqlForm = document.querySelector("form#sql-form");
+    createDb = document.querySelector("form#create-db-form");
+    const answr = document.querySelector("#answer");
+    const idSelector = sqlForm?.querySelector("select#id");
+
+    // console.log(idSelector)
+
+    sqlForm?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (answr) {
+        answr.innerHTML = "";
+      }
+
+      const formData = new FormData(e.target);
+      const formObject = Object.fromEntries(formData);
+
+      //   console.log(e.target.action);
+      //   console.log(formData.get("sql"));
+      //   console.log(formObject);
+      formObject.params = formObject.params
+        .trim()
+        .split(",")
+        .filter((r) => r.length > 0);
+
+      const action = "/database/" + formObject.id + "/" + formObject.type;
+
+      if (formObject.params.length < 1) {
+        delete formObject.params;
+      }
+
+      const response = await fetch(action, {
+        method: "POST",
+        body: JSON.stringify(formObject),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        alert(text);
+        return;
+      }
+
+      const result = await response.json();
+      if (answr) {
+        answr.innerHTML = JSON.stringify(result, undefined, 2);
+      }
+    });
+
+    createDb?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const formData = new FormData(e.target);
+      const formObject = Object.fromEntries(formData);
+      const action = "/database";
+
+      const response = await fetch(action, {
+        method: "POST",
+        body: JSON.stringify(formObject),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        alert(text);
+        return;
+      }
+
+      const result = await response.json();
+      //   alert(response.statusText + ": " + JSON.stringify(result));
+
+      const newOption = document.createElement("option");
+      newOption.innerText = result.name;
+      newOption.value = result.id;
+      idSelector.appendChild(newOption);
+
+      e.target.reset();
+    });
+
+    // fetch("/database")
+    //   .then(async (resp) => {
+    //     if (!resp.ok) {
+    //       const text = await resp.text();
+    //       throw new Error(text);
+    //     }
+    //     return resp.json();
+    //   })
+    //   .then((result) => {
+    //     result.forEach((r) => {
+    //       const newOption = document.createElement("option");
+    //       newOption.innerText = r.name;
+    //       newOption.value = r.id;
+    //       idSelector.appendChild(newOption);
+    //     });
+    //   })
+    //   .catch((err) => {
+    //     if (err instanceof Error) {
+    //       alert(err.message);
+    //     }
+    //   });
+  });
+</script>
+{{end}}

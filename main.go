@@ -18,141 +18,6 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8000", r))
 }
 
-const htmlTemplate = `
-Threads
-<form id="create-db-form" method="POST">
-<label>
-name
-<input name="name" id='name' placeholder= "name of database"></input>
-</label>
-
-<button>Submit</button>
-</form>
-
-<form id="sql-form" method="POST">
-<label>
-Database
-<select name="id" id="id" required>
-</select>
-</label>
-
-<label>
-Type
-<select name="type" value="query" id="type" required>
-<option value="query">Query</option>
-<option value="mutation">Mutation</option>
-</select>
-</label>
-
-<label>
-Query
-<textarea name="sql" id='sql' required></textarea>
-</label>
-
-<label>
-Params
-<input name="params" id='params' placeholder= "1,2,3"></input>
-</label>
-
-<button>Submit</button>
-</form>
-
-<div id='answer'></div>
-
-<script>
-  document.addEventListener("DOMContentLoaded", () => {
-    var sqlForm = document.querySelector("form#sql-form");
-    createDb = document.querySelector("form#create-db-form");
-    const answr = document.querySelector("#answer");
-    const idSelector = sqlForm?.querySelector("select#id");
-
-    // console.log(idSelector)
-
-    sqlForm?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      if (answr) {
-        answr.innerHTML = "";
-      }
-
-      const formData = new FormData(e.target);
-      const formObject = Object.fromEntries(formData);
-
-      //   console.log(e.target.action);
-      //   console.log(formData.get("sql"));
-      //   console.log(formObject);
-      formObject.params = formObject.params.split(",");
-      const action = "/database/" + formObject.id + "/" + formObject.type;
-
-      const response = await fetch(action, {
-        method: "POST",
-        body: JSON.stringify(formObject),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        alert(text);
-        return;
-      }
-
-      const result = await response.json();
-      if (answr) {
-        answr.innerHTML = JSON.stringify(result, undefined, 2);
-      }
-    });
-
-    createDb?.addEventListener("submit", async (e) => {
-      e.preventDefault();
-
-      const formData = new FormData(e.target);
-      const formObject = Object.fromEntries(formData);
-      const action = "/database";
-
-      const response = await fetch(action, {
-        method: "POST",
-        body: JSON.stringify(formObject),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        alert(text);
-        return;
-      }
-
-      const result = await response.json();
-    //   alert(response.statusText + ": " + JSON.stringify(result));
-
-      const newOption = document.createElement("option");
-      newOption.innerText = result.name;
-      newOption.value = result.id;
-      idSelector.appendChild(newOption);
-    });
-
-    fetch("/database")
-      .then(async (resp) => {
-        if (!resp.ok) {
-          const text = await resp.text();
-          throw new Error(text);
-        }
-        return resp.json();
-      })
-      .then((result) => {
-        result.forEach((r) => {
-          const newOption = document.createElement("option");
-          newOption.innerText = r.name;
-          newOption.value = r.id;
-          idSelector.appendChild(newOption);
-        });
-      })
-      .catch((err) => {
-        if (err instanceof Error) {
-          alert(err.message);
-        }
-      });
-  });
-</script>
-
-`
-
 func newStore() chi.Router {
 
 	db := database.ConnectToDB("main")
@@ -180,13 +45,25 @@ func newStore() chi.Router {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	templ := template.Must(template.New("").Parse(htmlTemplate))
+	templ := template.Must(template.ParseFiles("templates/partials/base.html", "templates/index.html"))
 
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		type data struct {
+			Databases []database.Database
 		}
 		w.Header().Add("Content-type", "text/html")
-		templ.Execute(w, data{})
+
+		Databases, err := ds.GetAll()
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(err.Error()))
+			return
+		}
+
+		err = templ.Execute(w, data{Databases})
+		if err != nil {
+			log.Panic(err)
+		}
 	})
 
 	r.Route("/database", func(r chi.Router) {
